@@ -1,0 +1,154 @@
+from tkinter import *
+import numpy as np
+
+first_layer_count = 2
+second_layer_count = 6
+third_layer_count = 1
+
+input_neurons = np.zeros(first_layer_count)
+hidden_neurons, hidden_biases, der_hidden_biases, der_hidden_ReLUs = [np.zeros(second_layer_count) for _ in range(4)]
+output_neurons, output_biases, der_output_biases, der_output_ReLUs = [np.zeros(third_layer_count) for _ in range(4)]
+
+
+first_range = np.sqrt(6 / (first_layer_count + second_layer_count))
+second_range = np.sqrt(6 / (second_layer_count + third_layer_count))
+first_weight_set = np.random.uniform(low=-first_range, high=first_range, size=(10, second_layer_count, first_layer_count))
+second_weight_set = np.random.uniform(low=-second_range, high=second_range, size=(10, third_layer_count, second_layer_count))
+set_index = 0
+clock = 0
+lowest_set = [0,1]
+print(second_weight_set)
+
+first_weights = first_weight_set[set_index].copy()
+second_weights = second_weight_set[set_index].copy()
+der_first_weights = np.zeros((second_layer_count, first_layer_count))
+der_second_weights = np.zeros((third_layer_count, second_layer_count))
+batch_size = 1000
+codes = []
+play = False
+
+def toggle_function(event):
+    global play
+    play = not play
+    canvas.delete('toggle')
+    if play:
+        pass_time()
+        toggle = canvas.create_text(250, 50, text='⏸', fill='#FFFFFF', tag='toggle')
+    else:
+        toggle = canvas.create_text(250, 50, text='▶', fill='#FFFFFF', tag='toggle')
+    canvas.tag_bind(toggle, '<Button-1>', toggle_function)
+    
+def enter_function(event):
+    try:
+        input_neurons[0] = float(entry1.get())
+        input_neurons[1] = float(entry2.get())
+    except ValueError:
+        pass
+    forward()
+    print(f'Right answer: {np.sqrt((input_neurons[0]-0.5) ** 2 + (input_neurons[1]-0.5) ** 2)}')
+    print(f'Guess: {output_neurons[0]}')
+    
+window = Tk()
+canvas = Canvas(window, bg='#000000', height=700, width=500)
+canvas.pack()
+entry1 = Entry(window)
+entry2 = Entry(window)
+canvas.create_window(175, 100, window=entry1)
+canvas.create_window(175, 150, window=entry2)
+toggle = canvas.create_text(250, 50, text='▶', fill='#FFFFFF', tag='toggle')
+canvas.tag_bind(toggle, '<Button-1>', toggle_function)
+enter_button = canvas.create_text(125, 200, text='Enter', fill='#FFFFFF', tag='enter')
+canvas.tag_bind(enter_button, '<Button-1>', enter_function)
+
+def forward():
+    global hidden_neurons, output_neurons, der_hidden_biases, der_output_biases, der_first_weights, der_second_weights
+    hidden_neurons[:], output_neurons[:], der_hidden_biases[:], der_output_biases[:], der_first_weights[:], der_second_weights[:] = [0] * 6
+    for i in range(second_layer_count):
+        for j in range(first_layer_count):
+            hidden_neurons[i] += input_neurons[j] * first_weights[i][j]
+        hidden_neurons[i] += hidden_biases[i]
+        if hidden_neurons[i] < 0:
+            hidden_neurons[i] /= 100
+            der_hidden_ReLUs[i] = 0.01
+        else:
+            der_hidden_ReLUs[i] = 1
+    for i in range(third_layer_count):
+        for j in range(second_layer_count):
+            output_neurons[i] += hidden_neurons[j] * second_weights[i][j]
+        output_neurons[i] += output_biases[i]
+        if output_neurons[i] < 0:
+            output_neurons[i] /= 100
+            der_output_ReLUs[i] = 0.01
+        else:
+            der_output_ReLUs[i] = 1
+            
+def backward():
+    for i in range(third_layer_count):
+        code_index = first_layer_count + i
+        der_output_biases[i] += 2 * (output_neurons[i] - codes[0][code_index]) * der_output_ReLUs[i]
+        for j in range(second_layer_count):
+            der_second_weights[i][j] += 2 * (output_neurons[i] - codes[0][code_index]) * der_output_ReLUs[i] * hidden_neurons[j]
+            der_hidden_biases[j] += 2 * (output_neurons[i] - codes[0][code_index]) * der_output_ReLUs[i] * second_weights[i][j] * der_hidden_ReLUs[j]
+            for k in range(first_layer_count):
+                der_first_weights[j][k] += 2 * (output_neurons[i] - codes[0][code_index]) * der_output_ReLUs[i] * second_weights[i][j] * der_hidden_ReLUs[j] * input_neurons[k]
+                
+def update_parameters():
+    global second_weights, output_biases, first_weights, hidden_biases
+    second_weights -= 0.005 * der_second_weights
+    output_biases -= 0.005 * der_output_biases
+    first_weights -= 0.005 * der_first_weights
+    hidden_biases -= 0.005 * der_hidden_biases
+    
+def generate_codes():
+    for _ in range(batch_size):
+        x = np.random.uniform(-1, 2)
+        y = np.random.uniform(-1, 2)
+        codes.append([x, y, np.sqrt((x-0.5) ** 2 + (y-0.5) ** 2)])
+        
+def pass_time():
+    global clock, set_index, lowest_set, first_weights, second_weights
+    generate_codes()
+    cost = 0
+    while len(codes) > 0:
+        for i in range(first_layer_count):
+            input_neurons[i] = codes[0][i]
+        forward()
+        for i in range(third_layer_count):
+            cost += abs(output_neurons[i] - codes[0][first_layer_count + i])
+        backward()
+        update_parameters()
+        codes.pop(0)
+    cost /= (batch_size * third_layer_count)
+    canvas.delete('cost_label')
+    cost_label = canvas.create_text(400, 50, text=f'{cost:.5f}', fill='#FFFFFF', tag='cost_label')
+    if play:
+        clock += 1
+        if clock == 100:
+            if cost < lowest_set[1]:
+                lowest_set = [set_index, cost]
+            print(set_index)
+            print(cost)
+            print(lowest_set)
+            print(second_weight_set[set_index])
+            print('––––––––')
+            set_index += 1
+            if set_index == 10:
+                print(lowest_set)
+                print(second_weight_set[lowest_set[0]])
+
+                first_copy_of_super_secret_weights = first_weight_set[lowest_set[0]].copy()
+                second_copy_of_super_secret_weights = second_weight_set[lowest_set[0]].copy()
+                for i in range(10):
+                    for j in range(second_layer_count):
+                        for k in range(first_layer_count):
+                            first_weight_set[i][j][k] = first_copy_of_super_secret_weights.copy()[j][k] + np.random.uniform(-0.08, 0.08)
+                    for j in range(third_layer_count):
+                        for k in range(second_layer_count):
+                            second_weight_set[i][j][k] = second_copy_of_super_secret_weights.copy()[j][k] + np.random.uniform(-0.08, 0.08)
+                set_index = 0
+                lowest_set = [0,1]
+            first_weights = first_weight_set[set_index].copy()
+            second_weights = second_weight_set[set_index].copy()
+            clock = 0
+        window.after(1, pass_time)
+window.mainloop()
